@@ -21,7 +21,6 @@ func (c *Counter) Set(n int64) {
 }
 
 func (c *Counter) Reset() {
-
 	atomic.AddInt64(&c.num, 0)
 }
 
@@ -53,6 +52,7 @@ type BucketCounter struct {
 	closeCh   chan *struct{}
 }
 
+// 创建计数器桶, ts为最大阈值, dt为统计的持续时间
 func NewBucketCounter(ts, dt int64) *BucketCounter {
 	r := &BucketCounter{
 		Counters:  make(map[int64]*Counter, dt*2),
@@ -66,18 +66,27 @@ func NewBucketCounter(ts, dt int64) *BucketCounter {
 	return r
 }
 
+// 状态守护
 func (bc *BucketCounter) daemon() {
-	dlc := bc.deadlineCheck
+
 	for {
 		select {
 		case <-bc.delCh:
-			dlc()
+			bc.delDeadline()
 		case <-bc.closeCh:
 			return
 		}
 	}
-
 }
+
+// 删除
+func (bc *BucketCounter) delDeadline() {
+	bc.Mutex.Lock()
+	defer bc.Mutex.Unlock()
+	bc.deadlineCheck()
+}
+
+// 新建计数器
 func (bc *BucketCounter) getCounter() *Counter {
 	now := time.Now().Unix()
 	var counter *Counter
@@ -91,10 +100,8 @@ func (bc *BucketCounter) getCounter() *Counter {
 	return counter
 }
 
+// 计数器ttl判断
 func (bc *BucketCounter) deadlineCheck() {
-	bc.Mutex.Lock()
-	defer bc.Mutex.Unlock()
-
 	dtt := bc.diffTimestamp()
 	for tt := range bc.Counters {
 		if tt <= dtt {
@@ -103,6 +110,7 @@ func (bc *BucketCounter) deadlineCheck() {
 	}
 }
 
+// 增量更新
 func (bc *BucketCounter) Increment() {
 	bc.Mutex.Lock()
 	defer bc.Mutex.Unlock()
@@ -112,14 +120,18 @@ func (bc *BucketCounter) Increment() {
 	bc.deadlineCheck()
 }
 
-func (bc *BucketCounter) Size() int64 {
+// 计数器总计数
+func (bc *BucketCounter) Sum() int64 {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
+	return bc.size()
+}
 
+// 总数
+func (bc *BucketCounter) size() int64 {
 	var (
 		dtt = bc.diffTimestamp()
-
 		sum int64
 	)
 	for tt, ct := range bc.Counters {
@@ -130,31 +142,44 @@ func (bc *BucketCounter) Size() int64 {
 	bc.delCh <- &struct{}{}
 	return sum
 }
+
+// 当前时间差, 起点时间
 func (bc *BucketCounter) diffTimestamp() int64 {
 	return time.Now().Unix() - bc.Duration
-
 }
+
+// 锁定状态
 func (bc *BucketCounter) Overflow() bool {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
-	bc.deadlineCheck()
-	if bc.Size() > bc.Threshold {
-		return false
-	}
-	return true
 
+	bc.deadlineCheck()
+	if bc.size() > bc.Threshold {
+		return true
+	}
+	return false
 }
+
+// 秒内最小值
 func (bc *BucketCounter) Min() int64 {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
 	var (
-		dtt = bc.diffTimestamp()
-		min int64
+		dtt  = bc.diffTimestamp()
+		min  int64
+		flag bool
 	)
 
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
+
+			if ! flag {
+				min = ct.Get()
+				flag = true
+
+				continue
+			}
 			if ! ct.Compare(min) {
 				min = ct.Get()
 			}
@@ -164,17 +189,24 @@ func (bc *BucketCounter) Min() int64 {
 
 	return min
 }
+
+// 秒内最大值
 func (bc *BucketCounter) Max() int64 {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
 	var (
-		dtt = bc.diffTimestamp()
-		max int64
+		dtt  = bc.diffTimestamp()
+		max  int64
+		flag bool
 	)
-
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
+			if ! flag {
+				max = ct.Get()
+				flag = true
+				continue
+			}
 			if ct.Compare(max) {
 				max = ct.Get()
 
@@ -186,12 +218,20 @@ func (bc *BucketCounter) Max() int64 {
 	return max
 }
 
-func (bc *BucketCounter) Avg() int64 {
+// 均值
+func (bc *BucketCounter) Avg() float64 {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
-	return bc.Size() / bc.Duration
+	return float64(bc.size()) / float64(len(bc.Counters))
 }
 
+// 重置计数器桶
+func (bc *BucketCounter) String() string {
+	return strconv.Itoa(int(bc.Sum()))
+
+}
+
+// 重置计数器桶
 func (bc *BucketCounter) Clear() {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
@@ -199,6 +239,7 @@ func (bc *BucketCounter) Clear() {
 
 }
 
+// 关闭计数器桶
 func (bc *BucketCounter) Close() {
 	bc.Mutex.Lock()
 	defer bc.Mutex.Unlock()
