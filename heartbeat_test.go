@@ -15,13 +15,11 @@ func TestNewHeartBeat(t *testing.T) {
 	hb.AddSignal(&SrvSignal{false})
 	hb.AddSignal(&SrvSignal{false})
 	hb.AddSignal(&SrvSignal{false})
-	time.Sleep(time.Second*11)
+	time.Sleep(time.Second * 11)
 	//hb.AddBeat(&SrvSignal{false})
 	//hb.AddBeat(&SrvSignal{false})
 	fmt.Println(hb.Status())
 }
-
-
 
 type SrvSignal struct {
 	b bool

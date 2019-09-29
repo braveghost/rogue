@@ -7,7 +7,7 @@ import (
 )
 
 func TestCounter(t *testing.T) {
-	c:= &Counter{0}
+	c := &Counter{0}
 	fmt.Println(c)
 
 	c.Add()
@@ -19,21 +19,20 @@ func TestCounter(t *testing.T) {
 
 	fmt.Println(c.Compare(11))
 	xx := c.Get()
-	fmt.Println(c,xx)
+	fmt.Println(c, xx)
 	c.Reset()
 	fmt.Println(c)
 }
 func TestNewBucketCounter(t *testing.T) {
 
-
 	x := NewBucketCounter(5, 5)
 
 	x.Increment()
 	x.Increment()
-	time.Sleep(time.Second*3)
+	time.Sleep(time.Second * 3)
 	x.Increment()
 	x.Increment()
-	time.Sleep(time.Second*2)
+	time.Sleep(time.Second * 2)
 	x.Increment()
 	fmt.Println(x.Overflow())
 	fmt.Println(x.Avg())
