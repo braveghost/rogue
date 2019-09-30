@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+
+var (
+	defaultThreshold = int64(5)
+	defaultDuration = int64(10)
+)
+
+
 type Counter struct {
 	num int64
 }
@@ -54,6 +61,13 @@ type BucketCounter struct {
 
 // 创建计数器桶, ts为最大阈值, dt为统计的持续时间
 func NewBucketCounter(ts, dt int64) *BucketCounter {
+	if ts <= 0{
+		ts = defaultThreshold
+	}
+	if dt <= 0{
+		dt = defaultDuration
+	}
+
 	r := &BucketCounter{
 		Counters:  make(map[int64]*Counter, dt*2),
 		Mutex:     &sync.RWMutex{},
