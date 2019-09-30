@@ -62,21 +62,7 @@ func NewBucketCounter(ts, dt int64) *BucketCounter {
 		delCh:     make(chan *struct{}, 100),
 		closeCh:   make(chan *struct{}, 1),
 	}
-	go r.daemon()
 	return r
-}
-
-// 状态守护
-func (bc *BucketCounter) daemon() {
-
-	for {
-		select {
-		case <-bc.delCh:
-			bc.delDeadline()
-		case <-bc.closeCh:
-			return
-		}
-	}
 }
 
 // 删除
@@ -125,11 +111,13 @@ func (bc *BucketCounter) Sum() int64 {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
+
 	return bc.size()
 }
 
 // 总数
 func (bc *BucketCounter) size() int64 {
+	bc.deadlineCheck()
 	var (
 		dtt = bc.diffTimestamp()
 		sum int64
@@ -139,7 +127,6 @@ func (bc *BucketCounter) size() int64 {
 			sum += ct.Get()
 		}
 	}
-	bc.delCh <- &struct{}{}
 	return sum
 }
 
@@ -153,7 +140,6 @@ func (bc *BucketCounter) Overflow() bool {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
 
-	bc.deadlineCheck()
 	if bc.size() > bc.Threshold {
 		return true
 	}
@@ -170,14 +156,13 @@ func (bc *BucketCounter) Min() int64 {
 		min  int64
 		flag bool
 	)
-
+	bc.deadlineCheck()
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
 
 			if ! flag {
 				min = ct.Get()
 				flag = true
-
 				continue
 			}
 			if ! ct.Compare(min) {
@@ -185,7 +170,6 @@ func (bc *BucketCounter) Min() int64 {
 			}
 		}
 	}
-	bc.delCh <- &struct{}{}
 
 	return min
 }
@@ -200,6 +184,8 @@ func (bc *BucketCounter) Max() int64 {
 		max  int64
 		flag bool
 	)
+	bc.deadlineCheck()
+
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
 			if ! flag {
@@ -214,7 +200,6 @@ func (bc *BucketCounter) Max() int64 {
 		}
 	}
 
-	bc.delCh <- &struct{}{}
 	return max
 }
 
@@ -237,11 +222,4 @@ func (bc *BucketCounter) Clear() {
 	defer bc.Mutex.RUnlock()
 	bc.Counters = make(map[int64]*Counter, bc.Duration*2)
 
-}
-
-// 关闭计数器桶
-func (bc *BucketCounter) Close() {
-	bc.Mutex.Lock()
-	defer bc.Mutex.Unlock()
-	bc.closeCh <- &struct{}{}
 }

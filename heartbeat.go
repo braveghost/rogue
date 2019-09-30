@@ -5,36 +5,38 @@ import (
 )
 
 type iSignal interface {
-	Status() bool
+	Status() error
 }
 
 func NewHeartBeat(ts, dt int64) *HeartBeat {
 	hb := &HeartBeat{
 		lock:    sync.Mutex{},
-		counter: NewBucketCounter(ts, dt),
+		Counter: NewBucketCounter(ts, dt),
 	}
 	return hb
 }
 
 type HeartBeat struct {
-	counter *BucketCounter
+	Counter *BucketCounter
 	lock    sync.Mutex
 }
 
 func (hb *HeartBeat) Status() bool {
 	hb.lock.Lock()
 	defer hb.lock.Unlock()
-	return hb.counter.Overflow()
+	return hb.Counter.Overflow()
 }
 
-func (hb *HeartBeat) AddSignal(cf iSignal) {
-	hb.disposeSignal(cf)
+func (hb *HeartBeat) AddSignal(cf iSignal) error {
+	return hb.disposeSignal(cf)
 }
 
-func (hb *HeartBeat) disposeSignal(s iSignal) {
+func (hb *HeartBeat) disposeSignal(s iSignal) error {
 	hb.lock.Lock()
 	defer hb.lock.Unlock()
-	if !s.Status() {
-		hb.counter.Increment()
+	if err := s.Status(); err != nil {
+		hb.Counter.Increment()
+		return err
 	}
+	return nil
 }
