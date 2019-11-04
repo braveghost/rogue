@@ -1,6 +1,7 @@
 package rogue
 
 import (
+	"github.com/braveghost/joker"
 	"sync"
 )
 
@@ -8,20 +9,20 @@ type iSignal interface {
 	Status() error
 }
 
-func NewHeartBeat(ts, dt int64) *HeartBeat {
+func NewHeartBeat(ts, dt int64, ct counterType, unit unitTimeType) *HeartBeat {
 	hb := &HeartBeat{
 		lock:    sync.Mutex{},
-		Counter: NewBucketCounter(ts, dt),
+		Counter: NewBucket(ts, dt, ct, unit),
 	}
 	return hb
 }
 
 type HeartBeat struct {
-	Counter *BucketCounter
+	Counter *Bucket
 	lock    sync.Mutex
 }
 
-func (hb *HeartBeat) Status() bool {
+func (hb *HeartBeat) Status() (bool, error) {
 	hb.lock.Lock()
 	defer hb.lock.Unlock()
 	return hb.Counter.Overflow()
@@ -35,7 +36,12 @@ func (hb *HeartBeat) disposeSignal(s iSignal) error {
 	hb.lock.Lock()
 	defer hb.lock.Unlock()
 	if err := s.Status(); err != nil {
-		hb.Counter.Increment()
+		innerErr := hb.Counter.Increment()
+		if innerErr != nil {
+			joker.Errorw("Rogue.HeartBeat.DisposeSignal.Error", "inner_error", innerErr, "err", err)
+			return innerErr
+		}
+
 		return err
 	}
 	return nil

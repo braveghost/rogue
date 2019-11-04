@@ -1,75 +1,51 @@
 package rogue
 
 import (
-	"strconv"
+	"github.com/braveghost/joker"
+	"github.com/braveghost/meteor/itime"
+	"github.com/braveghost/rogue/counter"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
+type unitTimeType string
+
+const (
+	UnitZero   unitTimeType = "zero"
+	UnitSecond unitTimeType = "second"
+	UnitMinute unitTimeType = "minute"
+	UnitHour   unitTimeType = "hour"
+	UnitDay    unitTimeType = "day"
+	UnitWeek   unitTimeType = "week"
+	UnitMonth  unitTimeType = "month"
+	UnitYear   unitTimeType = "year"
+)
+
+type counterType string
+
+const (
+	ECounterTypeMemory counterType = "memory"
+	ECounterTypeRedis  counterType = "redis"
+)
 
 var (
 	defaultThreshold = int64(5)
-	defaultDuration = int64(10)
+	defaultDuration  = int64(10)
 )
 
-
-type Counter struct {
-	num int64
-}
-
-func (c *Counter) Add() {
-
-	atomic.AddInt64(&c.num, 1)
-}
-func (c *Counter) Set(n int64) {
-
-	atomic.StoreInt64(&c.num, n)
-}
-
-func (c *Counter) Reset() {
-	atomic.AddInt64(&c.num, 0)
-}
-
-func (c *Counter) Compare(n int64) bool {
-	if n > atomic.LoadInt64(&c.num) {
-		return false
-	}
-	return true
-}
-
-func (c *Counter) Get() int64 {
-	return atomic.LoadInt64(&c.num)
-}
-
-func (c *Counter) Minus() {
-	atomic.AddInt64(&c.num, -1)
-}
-
-func (c *Counter) String() string {
-	return strconv.Itoa(int(c.num))
-}
-
-type BucketCounter struct {
-	Counters  map[int64]*Counter
-	Mutex     *sync.RWMutex
-	Threshold int64
-	Duration  int64
-	delCh     chan *struct{}
-	closeCh   chan *struct{}
-}
-
 // 创建计数器桶, ts为最大阈值, dt为统计的持续时间
-func NewBucketCounter(ts, dt int64) *BucketCounter {
-	if ts <= 0{
+func NewBucket(ts, dt int64, ct counterType, unit unitTimeType) *Bucket {
+	if ts <= 0 {
 		ts = defaultThreshold
 	}
-	if dt <= 0{
+	if dt <= 0 {
 		dt = defaultDuration
 	}
 
-	r := &BucketCounter{
-		Counters:  make(map[int64]*Counter, dt*2),
+	r := &Bucket{
+		Type:      ct,
+		Unit:      unit,
+		Counters:  make(map[int64]counter.ICounter, dt*2),
 		Mutex:     &sync.RWMutex{},
 		Threshold: ts,
 		Duration:  dt,
@@ -79,49 +55,76 @@ func NewBucketCounter(ts, dt int64) *BucketCounter {
 	return r
 }
 
+type Bucket struct {
+	Type      counterType
+	Unit      unitTimeType
+	Counters  map[int64]counter.ICounter
+	Mutex     *sync.RWMutex
+	Threshold int64
+	Duration  int64 // 持续时长, duration * unit, 最低单位秒
+	delCh     chan *struct{}
+	closeCh   chan *struct{}
+}
+
 // 删除
-func (bc *BucketCounter) delDeadline() {
+func (bc *Bucket) delDeadline() {
 	bc.Mutex.Lock()
 	defer bc.Mutex.Unlock()
 	bc.deadlineCheck()
 }
 
 // 新建计数器
-func (bc *BucketCounter) getCounter() *Counter {
-	now := time.Now().Unix()
-	var counter *Counter
+func (bc *Bucket) getCounter() counter.ICounter {
+	now := bc.nowTimestamp()
+	var ct counter.ICounter
 	var ok bool
 
-	if counter, ok = bc.Counters[now]; !ok {
-		counter = &Counter{}
-		bc.Counters[now] = counter
+	if ct, ok = bc.Counters[now]; !ok {
+		ct = bc.newCounter(now)
+		bc.Counters[now] = ct
 	}
 
-	return counter
+	return ct
 }
 
-// 计数器ttl判断
-func (bc *BucketCounter) deadlineCheck() {
+func (bc *Bucket) newCounter(now int64) counter.ICounter {
+	switch bc.Type {
+	case ECounterTypeRedis:
+		return counter.NewRedisCounter(now)
+	case ECounterTypeMemory:
+		return counter.NewMemoryCounter(0)
+	}
+	return nil
+}
+
+// 计数器 ttl 判断
+func (bc *Bucket) deadlineCheck() {
 	dtt := bc.diffTimestamp()
-	for tt := range bc.Counters {
+	for tt, vv := range bc.Counters {
 		if tt <= dtt {
+			_ = vv.Clear()
 			delete(bc.Counters, tt)
 		}
 	}
 }
 
 // 增量更新
-func (bc *BucketCounter) Increment() {
+func (bc *Bucket) Increment() error {
 	bc.Mutex.Lock()
 	defer bc.Mutex.Unlock()
 
 	b := bc.getCounter()
-	b.Add()
+	err := b.Add()
+	if err != nil {
+		return err
+	}
 	bc.deadlineCheck()
+
+	return nil
 }
 
 // 计数器总计数
-func (bc *BucketCounter) Sum() int64 {
+func (bc *Bucket) Sum() (int64, error) {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
@@ -130,7 +133,7 @@ func (bc *BucketCounter) Sum() int64 {
 }
 
 // 总数
-func (bc *BucketCounter) size() int64 {
+func (bc *Bucket) size() (int64, error) {
 	bc.deadlineCheck()
 	var (
 		dtt = bc.diffTimestamp()
@@ -138,30 +141,78 @@ func (bc *BucketCounter) size() int64 {
 	)
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
-			sum += ct.Get()
+			val, err := ct.Get()
+			if err != nil {
+				return 0, err
+			}
+			sum += val
 		}
 	}
-	return sum
+	return sum, nil
 }
 
 // 当前时间差, 起点时间
-func (bc *BucketCounter) diffTimestamp() int64 {
-	return time.Now().Unix() - bc.Duration
+func (bc *Bucket) diffTimestamp() int64 {
+
+	switch bc.Unit {
+	case UnitSecond:
+		return time.Now().Unix() - bc.Duration
+	case UnitMinute:
+		return itime.LastMinutesStart(bc.Duration)
+	case UnitHour:
+		return itime.LastHoursStart(bc.Duration)
+	case UnitDay:
+		return itime.LastDaysStart(bc.Duration)
+	case UnitMonth:
+		return itime.LastMonthsStart(bc.Duration)
+	case UnitYear:
+		return itime.LastYearsStart(bc.Duration)
+	default:
+		joker.Warnf("not support unit type '%s'", bc.Unit)
+		return 0
+	}
 }
 
+
+// 当前时间差, 起点时间
+func (bc *Bucket) nowTimestamp() int64 {
+
+	switch bc.Unit {
+	case UnitSecond:
+		return time.Now().Unix()
+	case UnitMinute:
+		return itime.NowMinuteStart()
+	case UnitHour:
+		return itime.NowHourStart()
+	case UnitDay:
+		return itime.NowDayStart()
+	case UnitMonth:
+		return itime.NowMonthStart()
+	case UnitYear:
+		return itime.NowYearStart()
+	default:
+		joker.Warnf("not support unit type '%s'", bc.Unit)
+		return 0
+	}
+}
+
+
 // 锁定状态
-func (bc *BucketCounter) Overflow() bool {
+func (bc *Bucket) Overflow() (bool, error) {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
-
-	if bc.size() > bc.Threshold {
-		return true
+	size, err := bc.size()
+	if err != nil {
+		return false, err
 	}
-	return false
+	if size > bc.Threshold {
+		return true, nil
+	}
+	return false, nil
 }
 
 // 秒内最小值
-func (bc *BucketCounter) Min() int64 {
+func (bc *Bucket) Min() (int64, error) {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
@@ -169,27 +220,37 @@ func (bc *BucketCounter) Min() int64 {
 		dtt  = bc.diffTimestamp()
 		min  int64
 		flag bool
+		ok   bool
+		err  error
 	)
 	bc.deadlineCheck()
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
 
 			if ! flag {
-				min = ct.Get()
+				min, err = ct.Get()
+				if err != nil {
+					return 0, err
+				}
+
 				flag = true
 				continue
 			}
-			if ! ct.Compare(min) {
-				min = ct.Get()
+			ok, err = ct.Compare(min)
+			if ok {
+				min, err = ct.Get()
+				if err != nil {
+					return 0, err
+				}
 			}
 		}
 	}
 
-	return min
+	return min, nil
 }
 
 // 秒内最大值
-func (bc *BucketCounter) Max() int64 {
+func (bc *Bucket) Max() (int64, error) {
 
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
@@ -197,43 +258,51 @@ func (bc *BucketCounter) Max() int64 {
 		dtt  = bc.diffTimestamp()
 		max  int64
 		flag bool
+		ok   bool
+		err  error
 	)
 	bc.deadlineCheck()
 
 	for tt, ct := range bc.Counters {
 		if tt >= dtt {
 			if ! flag {
-				max = ct.Get()
+				max, err = ct.Get()
+				if err != nil {
+					return 0, err
+				}
 				flag = true
 				continue
 			}
-			if ct.Compare(max) {
-				max = ct.Get()
-
+			ok, err = ct.Compare(max)
+			if ok {
+				max, err = ct.Get()
+				if err != nil {
+					return 0, err
+				}
 			}
 		}
 	}
-
-	return max
+	return max, nil
 }
 
 // 均值
-func (bc *BucketCounter) Avg() float64 {
+func (bc *Bucket) Avg() (float64, error) {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
-	return float64(bc.size()) / float64(len(bc.Counters))
+	val, err := bc.size()
+	if err != nil {
+		return 0, err
+	}
+	return float64(val) / float64(len(bc.Counters)), nil
 }
 
 // 重置计数器桶
-func (bc *BucketCounter) String() string {
-	return strconv.Itoa(int(bc.Sum()))
-
-}
-
-// 重置计数器桶
-func (bc *BucketCounter) Clear() {
+func (bc *Bucket) Clear() {
 	bc.Mutex.RLock()
 	defer bc.Mutex.RUnlock()
-	bc.Counters = make(map[int64]*Counter, bc.Duration*2)
+	for _, vv := range bc.Counters {
+		_ = vv.Clear()
+	}
+	bc.Counters = make(map[int64]counter.ICounter, bc.Duration*2)
 
 }
