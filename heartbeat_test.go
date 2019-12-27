@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewHeartBeat(t *testing.T) {
-	hb := NewHeartBeat(5, 10,ECounterTypeRedis, UnitSecond)
+	hb := NewHeartBeat(5, 10,ECounterTypeRedis, UnitSecond,"test")
 	hb.AddSignal(&SrvSignal{nil})
 	hb.AddSignal(&SrvSignal{errors.New("")})
 	hb.AddSignal(&SrvSignal{errors.New("")})

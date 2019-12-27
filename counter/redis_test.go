@@ -7,7 +7,7 @@ import (
 )
 
 func TestRedis(t *testing.T) {
-	x := Redis{float64(time.Now().Unix())}
+	x := Redis{float64(time.Now().Unix()),"test"}
 
 	fmt.Println(x.Get())
 	for i := 0; i <= 5; i++ {

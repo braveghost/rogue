@@ -9,10 +9,10 @@ type iSignal interface {
 	Status() error
 }
 
-func NewHeartBeat(ts, dt int64, ct counterType, unit unitTimeType) *HeartBeat {
+func NewHeartBeat(ts, dt int64, ct counterType, unit unitTimeType, name string) *HeartBeat {
 	hb := &HeartBeat{
 		lock:    sync.Mutex{},
-		Counter: NewBucket(ts, dt, ct, unit),
+		Counter: NewBucket(ts, dt, ct, unit, name),
 	}
 	return hb
 }

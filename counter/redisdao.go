@@ -43,7 +43,6 @@ func RedisDao() *redisDao {
 
 }
 
-
 func (rd *redisDao) SetValue(key string, v interface{}) error {
 	res := rd.Client.Set(key, v, 0)
 	return res.Err()

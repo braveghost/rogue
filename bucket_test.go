@@ -7,17 +7,17 @@ import (
 )
 
 func TestBucket(t *testing.T) {
-	b := NewBucket(1, 5, ECounterTypeRedis, UnitSecond)
+	b := NewBucket(1, 5, ECounterTypeRedis, UnitMinute,"test")
 	_ = b.Increment()
 	_ = b.Increment()
 	_ = b.Increment()
-	time.Sleep(time.Second * 2)
+	//time.Sleep(time.Second * 2)
 	_ = b.Increment()
 	_ = b.Increment()
 	time.Sleep(time.Second * 4)
 	fmt.Println(b.Counters)
 	for k, v := range b.Counters {
-		fmt.Println(k)
+		fmt.Println("====", k)
 		fmt.Println(v.Get())
 	}
 	fmt.Println("sum")

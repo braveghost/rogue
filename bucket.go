@@ -1,6 +1,7 @@
 package rogue
 
 import (
+	"fmt"
 	"github.com/braveghost/joker"
 	"github.com/braveghost/meteor/itime"
 	"github.com/braveghost/rogue/counter"
@@ -34,7 +35,7 @@ var (
 )
 
 // 创建计数器桶, ts为最大阈值, dt为统计的持续时间
-func NewBucket(ts, dt int64, ct counterType, unit unitTimeType) *Bucket {
+func NewBucket(ts, dt int64, ct counterType, unit unitTimeType, name string) *Bucket {
 	if ts <= 0 {
 		ts = defaultThreshold
 	}
@@ -49,8 +50,14 @@ func NewBucket(ts, dt int64, ct counterType, unit unitTimeType) *Bucket {
 		Mutex:     &sync.RWMutex{},
 		Threshold: ts,
 		Duration:  dt,
+		Name:      name,
 		delCh:     make(chan *struct{}, 100),
 		closeCh:   make(chan *struct{}, 1),
+	}
+
+	for i := r.Duration; i > 1; i-- {
+		tt := itime.LastMinutesStart(i - 1)
+		r.Counters[tt] = r.newCounter(tt)
 	}
 	return r
 }
@@ -60,6 +67,7 @@ type Bucket struct {
 	Unit      unitTimeType
 	Counters  map[int64]counter.ICounter
 	Mutex     *sync.RWMutex
+	Name      string
 	Threshold int64
 	Duration  int64 // 持续时长, duration * unit, 最低单位秒
 	delCh     chan *struct{}
@@ -82,6 +90,7 @@ func (bc *Bucket) getCounter() counter.ICounter {
 	if ct, ok = bc.Counters[now]; !ok {
 		ct = bc.newCounter(now)
 		bc.Counters[now] = ct
+
 	}
 
 	return ct
@@ -90,7 +99,7 @@ func (bc *Bucket) getCounter() counter.ICounter {
 func (bc *Bucket) newCounter(now int64) counter.ICounter {
 	switch bc.Type {
 	case ECounterTypeRedis:
-		return counter.NewRedisCounter(now)
+		return counter.NewRedisCounter(now, bc.Name)
 	case ECounterTypeMemory:
 		return counter.NewMemoryCounter(0)
 	}
@@ -118,6 +127,7 @@ func (bc *Bucket) Increment() error {
 	if err != nil {
 		return err
 	}
+
 	bc.deadlineCheck()
 
 	return nil
@@ -173,7 +183,6 @@ func (bc *Bucket) diffTimestamp() int64 {
 	}
 }
 
-
 // 当前时间差, 起点时间
 func (bc *Bucket) nowTimestamp() int64 {
 
@@ -195,7 +204,6 @@ func (bc *Bucket) nowTimestamp() int64 {
 		return 0
 	}
 }
-
 
 // 锁定状态
 func (bc *Bucket) Overflow() (bool, error) {

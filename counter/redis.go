@@ -5,16 +5,30 @@ import (
 	"github.com/braveghost/meteor/random"
 	"github.com/go-redis/redis"
 	"math"
+	"time"
 )
 
-const defaultCounterRedisKey = "braveghost.rogue.redis.counter"
+var ttl time.Duration = -1
+
+const (
+	defaultCounterRedisKey = "braveghost.rogue.redis.counter"
+)
+
+func SetRedisCounterTtl(t int64) {
+	ttl = time.Duration(t) * time.Second
+}
 
 type Redis struct {
 	score float64
+	name  string
 }
 
-func NewRedisCounter(t int64) ICounter {
-	return &Redis{float64(t)}
+func (c *Redis) getKey() string {
+	return defaultCounterRedisKey + "." + c.name
+}
+
+func NewRedisCounter(t int64, name string) ICounter {
+	return &Redis{float64(t), name}
 }
 
 func (c *Redis) Add() error {
@@ -22,17 +36,21 @@ func (c *Redis) Add() error {
 	return err
 }
 func (c *Redis) add(val ...*redis.Z) error {
-	res := RedisDao().ZAdd(defaultCounterRedisKey, val...)
+	key := c.getKey()
+	res := RedisDao().ZAdd(key, val...)
+	if ttl > 0 {
+		RedisDao().Expire(key, ttl)
+	}
 	return res.Err()
 }
 
 func (c *Redis) del(val ...interface{}) error {
-	res := RedisDao().ZRem(defaultCounterRedisKey, val...)
+	res := RedisDao().ZRem(c.getKey(), val...)
 	return res.Err()
 }
 
 func (c *Redis) rangeVal() ([]string, error) {
-	x := RedisDao().ZRangeByScore(defaultCounterRedisKey,
+	x := RedisDao().ZRangeByScore(c.getKey(),
 		&redis.ZRangeBy{
 			Min: fmt.Sprint(c.score),
 			Max: fmt.Sprint(c.score),
@@ -71,7 +89,7 @@ func (c *Redis) Set(n int64) error {
 }
 
 func (c *Redis) Reset() error {
-	res := RedisDao().ZRemRangeByScore(defaultCounterRedisKey, fmt.Sprint(c.score), fmt.Sprint(c.score))
+	res := RedisDao().ZRemRangeByScore(c.getKey(), fmt.Sprint(c.score), fmt.Sprint(c.score))
 	return res.Err()
 }
 
@@ -84,7 +102,7 @@ func (c *Redis) Compare(n int64) (bool, error) {
 }
 
 func (c *Redis) Get() (int64, error) {
-	res := RedisDao().ZCount(defaultCounterRedisKey, fmt.Sprint(c.score), fmt.Sprint(c.score))
+	res := RedisDao().ZCount(c.getKey(), fmt.Sprint(c.score), fmt.Sprint(c.score))
 	if res.Err() != nil {
 		return 0, res.Err()
 	}
@@ -100,12 +118,12 @@ func (c *Redis) Minus() error {
 	if len(val) == 0 {
 		return nil
 	}
-	res := RedisDao().ZRem(defaultCounterRedisKey, val[1])
+	res := RedisDao().ZRem(c.getKey(), val[1])
 	return res.Err()
 }
 
 func (c *Redis) Clear() error {
-	res := RedisDao().ZRemRangeByScore(defaultCounterRedisKey, "-inf", fmt.Sprint(c.score))
+	res := RedisDao().ZRemRangeByScore(c.getKey(), "-inf", fmt.Sprint(c.score))
 	return res.Err()
 
 }
