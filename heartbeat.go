@@ -38,7 +38,7 @@ func (hb *HeartBeat) disposeSignal(s iSignal) error {
 	if err := s.Status(); err != nil {
 		innerErr := hb.Counter.Increment()
 		if innerErr != nil {
-			joker.Errorw("Rogue.HeartBeat.DisposeSignal.Error", "inner_error", innerErr, "err", err)
+			logging.Errorw("Rogue.HeartBeat.DisposeSignal.Error", "inner_error", innerErr, "err", err)
 			return innerErr
 		}
 

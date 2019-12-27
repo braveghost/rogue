@@ -168,7 +168,7 @@ func (bc *Bucket) diffTimestamp() int64 {
 	case UnitYear:
 		return itime.LastYearsStart(bc.Duration)
 	default:
-		joker.Warnf("not support unit type '%s'", bc.Unit)
+		logging.Warnf("not support unit type '%s'", bc.Unit)
 		return 0
 	}
 }
@@ -191,7 +191,7 @@ func (bc *Bucket) nowTimestamp() int64 {
 	case UnitYear:
 		return itime.NowYearStart()
 	default:
-		joker.Warnf("not support unit type '%s'", bc.Unit)
+		logging.Warnf("not support unit type '%s'", bc.Unit)
 		return 0
 	}
 }
