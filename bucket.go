@@ -1,7 +1,6 @@
 package rogue
 
 import (
-	"fmt"
 	"github.com/braveghost/joker"
 	"github.com/braveghost/meteor/itime"
 	"github.com/braveghost/rogue/counter"
