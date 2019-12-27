@@ -31,6 +31,9 @@ func SetRedisMaxRetries(max int) {
 func SetRedisPoolSize(size int) {
 	redisPotions.PoolSize = size
 }
+func SetRedisPassword(pwd string) {
+	redisPotions.Password = pwd
+}
 
 func RedisDao() *redisDao {
 	if defaultRedisDao == nil {
