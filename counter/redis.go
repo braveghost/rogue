@@ -32,10 +32,10 @@ func NewRedisCounter(t int64, name string) ICounter {
 }
 
 func (c *Redis) Add() error {
-	err := c.add(&redis.Z{Score: c.score, Member: random.SnowFlake().String()})
+	err := c.add(redis.Z{Score: c.score, Member: random.SnowFlake().String()})
 	return err
 }
-func (c *Redis) add(val ...*redis.Z) error {
+func (c *Redis) add(val ...redis.Z) error {
 	key := c.getKey()
 	res := RedisDao().ZAdd(key, val...)
 	if ttl > 0 {
@@ -51,7 +51,7 @@ func (c *Redis) del(val ...interface{}) error {
 
 func (c *Redis) rangeVal() ([]string, error) {
 	x := RedisDao().ZRangeByScore(c.getKey(),
-		&redis.ZRangeBy{
+		redis.ZRangeBy{
 			Min: fmt.Sprint(c.score),
 			Max: fmt.Sprint(c.score),
 		})
@@ -71,11 +71,11 @@ func (c *Redis) Set(n int64) error {
 	vLen := int64(len(val))
 	m := n - vLen
 	if m > 0 {
-		var val []*redis.Z
+		var val []redis.Z
 		var i int64
 
 		for i = 0; i < m; i++ {
-			val = append(val, &redis.Z{Score: c.score, Member: random.SnowFlake().String()})
+			val = append(val, redis.Z{Score: c.score, Member: random.SnowFlake().String()})
 		}
 		return c.add(val...)
 	}
