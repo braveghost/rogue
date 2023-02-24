@@ -17,6 +17,6 @@ require (
 	github.com/tebeka/strftime v0.1.3 // indirect
 	github.com/zheng-ji/goSnowFlake v0.0.0-20180906112711-fc763800eec9 // indirect
 	go.uber.org/zap v1.13.0 // indirect
-	golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553 // indirect
+	golang.org/x/net v0.7.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 )
